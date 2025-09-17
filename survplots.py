@@ -16,13 +16,19 @@ from scipy.stats import fisher_exact
 
 import scipy.stats as stats
 
-def plot_kruskal_wallis_boxplot(df:pd.DataFrame, split_column:str, value_column:str, legend_dict = None,title ="",xlabel = "",ylabel = ""):
+
+
+def plot_kruskal_wallis_boxplot(df:pd.DataFrame, split_column:str, value_column:str, legend_dict ={},title ="",xlabel = "",ylabel = "", fontsize=14):
     fig, ax = plt.subplots(figsize=(12, 12), nrows=1, ncols=1)
     values_lists =[]
     split_list = sorted(df[split_column].unique().tolist())
     for v in split_list:
         values_lists.append(df[df[split_column] == v][value_column].values)
-    plt.boxplot(values_lists)
+    
+    # Create boxplot
+    bp = plt.boxplot(values_lists)
+    
+    # Set x-axis labels
     ticks_str = []
     if split_column in legend_dict:
         for x in split_list:
@@ -32,15 +38,74 @@ def plot_kruskal_wallis_boxplot(df:pd.DataFrame, split_column:str, value_column:
                 ticks_str.append(str(x))
     else:
         ticks_str = [str(x) for x in split_list]
-    plt.xticks(np.arange(1,len(split_list)+1), ticks_str)
+    plt.xticks(np.arange(1,len(split_list)+1), ticks_str, fontsize=fontsize)
 
+    # Perform Kruskal-Wallis H test
     kwht_dft = stats.kruskal(*values_lists)
+    
+    # Perform pairwise Mann-Whitney U tests
+    pairwise_pvalues = {}
+    n_groups = len(split_list)
+    
+    for i in range(n_groups):
+        for j in range(i+1, n_groups):
+            group1_name = str(split_list[i])
+            group2_name = str(split_list[j])
+            pair_key = f"{group1_name}_vs_{group2_name}"
+            
+            # Perform Mann-Whitney U test
+            try:
+                stat, p_value = stats.mannwhitneyu(values_lists[i], values_lists[j], 
+                                                 alternative='two-sided')
+                pairwise_pvalues[pair_key] = p_value
+            except ValueError:
+                # Handle cases where one group has all identical values
+                pairwise_pvalues[pair_key] = 1.0
 
+    # Add significance indicators on the plot
+    y_max = max([max(vals) for vals in values_lists if len(vals) > 0])
+    y_min = min([min(vals) for vals in values_lists if len(vals) > 0])
+    y_range = y_max - y_min
+    
+    # Define significance levels
+    sig_levels = [0.001, 0.01, 0.05]
+    sig_symbols = ['***', '**', '*']
+    
+    # Plot significance bars
+    bar_height = y_range * 0.05
+    current_y = y_max + y_range * 0.1
+    
+    for pair_key, p_value in pairwise_pvalues.items():
+        group1, group2 = pair_key.split('_vs_')
+        idx1 = split_list.index(float(group1) if group1.replace('.', '').replace('-', '').isdigit() else group1)
+        idx2 = split_list.index(float(group2) if group2.replace('.', '').replace('-', '').isdigit() else group2)
+        
+        # Determine significance symbol
+        sig_symbol = ''
+        for level, symbol in zip(sig_levels, sig_symbols):
+            if p_value < level:
+                sig_symbol = symbol
+                break
+        
+        if sig_symbol:
+            # Draw significance bar
+            x1, x2 = idx1 + 1, idx2 + 1
+            plt.plot([x1, x1, x2, x2], [current_y, current_y + bar_height, current_y + bar_height, current_y], 
+                    'k-', linewidth=1)
+            
+            # Add significance symbol and p-value
+            symbol_text = f"{sig_symbol}\np={p_value:.4E}"
+            plt.text((x1 + x2) / 2, current_y + bar_height + y_range * 0.01, symbol_text, 
+                    ha='center', va='bottom', fontsize=fontsize-2, fontweight='bold')
+            current_y += y_range * 0.2
+
+    # Set labels and title
     if ylabel != "":
         ylabel_str = ylabel
     else:
         ylabel_str = value_column
-    plt.ylabel(ylabel_str)
+    plt.ylabel(ylabel_str, fontsize=fontsize)
+    
     if xlabel != "":
         xlabel_str = xlabel
     else:
@@ -48,13 +113,25 @@ def plot_kruskal_wallis_boxplot(df:pd.DataFrame, split_column:str, value_column:
             xlabel_str = legend_dict[split_column]['legend name']
         else:
             xlabel_str = split_column
+    
     if title != "":
         title_str = title
     else:
         title_str = f"{ylabel_str} and {xlabel_str}"
-    plt.title(title_str + f"\n Kruskal-Wallis H Test p-value: {kwht_dft[1]:.4E}")
-    plt.xlabel(xlabel_str)
-    return fig,ax
+    
+    # Create title with only Kruskal-Wallis p-value
+    title_with_pvalues = title_str + f"\nKruskal-Wallis H Test p-value: {kwht_dft[1]:.4E}"
+    
+    plt.title(title_with_pvalues, fontsize=fontsize)
+    plt.xlabel(xlabel_str, fontsize=fontsize)
+    
+    # Set y-axis tick label fontsize
+    plt.yticks(fontsize=fontsize)
+    
+    # Adjust y-axis limits to accommodate significance bars
+    plt.ylim(y_min - y_range * 0.1, current_y + y_range * 0.1)
+    plt.tight_layout()
+    return fig, ax
 
 def plot_piecharts_of_categorial_variables(df_clean:pd.DataFrame):
     #df_tmp = df_clean.loc[:, ~df_clean.columns.str.contains('date', case=False)]
@@ -111,7 +188,51 @@ def plot_value_counts(df, columns):
     plt.tight_layout()
     return fig, axes
 
+def plot_two_columns_bars_comparison(df:pd.DataFrame, column1:str, column2:str, fontsize=14,title="",legend_dict ={}):
+    fig, ax = plt.subplots(figsize=(12, 12), nrows=1, ncols=1)
+    if not isinstance(ax, np.ndarray):
+        ax = [ax]
+    #split df by unique values in column1 and plot histogram of column2 for each value in column1
+    #column1 should be used for tickets, column 2 should be shown by color and legend
+    #bars should be side by side
+    unique_values_col1 = df[column1].unique()
+    unique_values_col2 = df[column2].unique()
+    labels_1 = {str(x): str(x) for x in unique_values_col2}
+    if column1 in legend_dict:
+        for i, x in enumerate(unique_values_col1):
+            if str(x) in legend_dict[column1]:
+                labels_1[str(x)] = legend_dict[column1][str(x)]
 
+    labels_2 = {str(x): str(x) for x in unique_values_col2 }
+    if column2 in legend_dict:
+        if 'legend name' in legend_dict[column2]:
+            labels_2 = {str(x): legend_dict[column2]['legend name'] + " = " + str(x) for x in unique_values_col2}
+        else:
+            for x in enumerate(unique_values_col2):
+                if str(x) in legend_dict[column2]:
+                    labels_2[str(x)] = legend_dict[column2][str(x)]
+
+    bar_width = 0.8 / len(unique_values_col2)
+    for i, val2 in enumerate(unique_values_col2):
+        counts = df[df[column2] == val2][column1].value_counts().reindex(unique_values_col1, fill_value=0)
+        ax[0].bar(np.arange(len(unique_values_col1)) + i * bar_width, counts.values, width=bar_width, label=labels_2[str(val2)])
+    ax[0].legend(fontsize=fontsize-2)
+    ax[0].set_xticks(ticks=np.arange(len(unique_values_col1)) + bar_width * (len(unique_values_col2) - 1) / 2)
+    labels_for_plot = []
+    for x in unique_values_col1:
+        labels_for_plot.append(labels_1[str(x)])
+
+    ax[0].set_xticklabels(labels_for_plot, rotation=45, ha='right', fontsize=fontsize)
+
+    #labels for plot is values in labels_1 sorted by keys in unique_values_col1
+    if column1 in legend_dict and 'legend name' in legend_dict[column1]:
+        ax[0].set_xlabel(legend_dict[column1]['legend name'], fontsize=fontsize)
+    #ax[0].set_xlabel(column1, fontsize=fontsize)
+    ax[0].set_ylabel("Number of Occurrences", fontsize=fontsize)
+    ax[0].set_title(title, fontsize=fontsize)
+    plt.tight_layout()
+
+    return fig, ax
 def plot_histograms_of_float_values(df_clean:pd.DataFrame):
     # plot in one figure histogram of all float columns with number of unique values more than sqrt(len(df.index))
     df_tmp = df_clean.loc[:, df_clean.dtypes == np.float64]
@@ -132,7 +253,7 @@ def plot_histograms_of_float_values(df_clean:pd.DataFrame):
 
 def plot_kaplan_meier(df_pu: pd.DataFrame, column_name: str,
                            status_column: str = "Status", survival_in_days: str = "Survival_in_days",
-                           legend_dict = None):
+                           legend_dict = None,fontsize=14):
 
         diff_values = sorted(df_pu[column_name].dropna().unique().tolist())
 
@@ -169,13 +290,14 @@ def plot_kaplan_meier(df_pu: pd.DataFrame, column_name: str,
 
             kmf.fit(df_pu[survival_in_days][ix], df_pu[status_column][ix],
                     label=full_label + f" p-value = {p_values[s]:.5f} ")
-            kmf.plot_survival_function(ax=ax[0], ci_legend=True)
+            kmf.plot_survival_function(ax=ax[0],fontsize=fontsize)
             at_risk_lables.append(f"{full_label}")
+            plt.legend(fontsize=fontsize-2)
             kmfs.append(kmf)
-        add_at_risk_counts(*kmfs, labels=at_risk_lables, ax=ax[0])
-        ax[0].set_ylabel("est. probability of survival $\hat{S}(t)$")
-        ax[0].set_xlabel(f"time $t$ (days)")
-        ax[0].set_title(f"Kaplan-Meier survival estimates [{survival_in_days}] ")
+        add_at_risk_counts(*kmfs, labels=at_risk_lables, ax=ax[0], fontsize=fontsize-2)
+        ax[0].set_ylabel("est. probability of survival $\hat{S}(t)$", fontsize=fontsize)
+        ax[0].set_xlabel(f"time $t$ (days)", fontsize=fontsize)
+        ax[0].set_title(f"Kaplan-Meier survival estimates [{survival_in_days}] ", fontsize=fontsize)
         plt.tight_layout()
         return fig
 
@@ -187,7 +309,7 @@ def keep_only_specific_columns(df, keep_columns, ignore_columns):
 
 from version import __version__
 if __name__ == '__main__':
-    list_of_plot_types = ["kaplan_meier", "pieplots", "floathistograms", "valuecounts",'fisher_exact_test','kruskal_wallis_test']
+    list_of_plot_types = ["kaplan_meier", "pieplots", "floathistograms", "valuecounts",'fisher_exact_test','kruskal_wallis_test','set_of_bars_plots']
     parser = argparse.ArgumentParser(description=f"Plot figures for survival analysis (ver: {__version__})",
                                      formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--input_csv", help="Input CSV file", type=str, required=True)
@@ -202,6 +324,7 @@ if __name__ == '__main__':
                         default=10)
     parser.add_argument("--max_survival_length", help="Maximum consider time interval in Kaplan-meier plots", type=float,
                         default=365*5)
+    parser.add_argument("-font_size", help="Font size for all text elements (labels, ticks, legend)", type=int, default=14)
     parser.add_argument("--show", help="If set, plots will be shown", default=False,
                         action='store_true')
     parser.add_argument("--verbose", help="Verbose mode", type=int, default=1)
@@ -211,7 +334,7 @@ if __name__ == '__main__':
     parser.add_argument("--tiff", help="If set, plots will be saved in tiff format", default=False, action='store_true')
     args = parser.parse_args()
     input_csv = args.input_csv
-
+    font_size = args.font_size
     status_col = args.status_col
     tiff_dpi = 100
     survival_time_col = args.survival_time_col
@@ -248,10 +371,11 @@ if __name__ == '__main__':
     if number_of_rows_before_status_column_nan_filtering != len(df.index):
         print(f"survplots:Warning: Number of rows after NaN in status column filtering:{len(df.index)}")
     #check if status column is binary
-    if df[status_col].nunique() != 2:
+    if df[status_col].nunique() != 2 and plot_type != "set_of_bars_plots":
         raise RuntimeError(f"Column {status_col} is not binary")
     #convert status column to boolean
-    df[status_col] = df[status_col].astype(bool)
+    if plot_type != "set_of_bars_plots":
+        df[status_col] = df[status_col].astype(bool)
 
 
     if plot_type == "kaplan_meier":
@@ -292,13 +416,22 @@ if __name__ == '__main__':
             if args.verbose > 1:
                 print(f"Plotting kaplan_meier for column {col} {len(columns)}\{i}. Number of unique values is {df[col].nunique()}. Number of Nulls is {df[col].isnull().sum()}")
             try:
-                fig = plot_kaplan_meier(df_filtered, col, status_col, survival_time_col, legend_dict=legend_dict)
+                fig = plot_kaplan_meier(df_filtered, col, status_col, survival_time_col, legend_dict=legend_dict, fontsize=font_size)
                 pp.savefig(fig)
                 if args.tiff:
                     fig.savefig(f"{args.output_pdf[:-4]}_{col}.tiff", dpi=tiff_dpi, format='tiff')
             except Exception as e:
                 print(f"Error while plotting kaplan_meier for column {col}: {str(e)}")
                 raise e
+    elif plot_type == "set_of_bars_plots":
+        i = 0
+        column1= args.status_col
+        for column2 in columns:
+            i = i + 1
+            fig, ax = plot_two_columns_bars_comparison(df, column1, column2, fontsize=font_size,title=args.title,legend_dict=legend_dict)
+            pp.savefig(fig)
+            if args.tiff:
+                fig.savefig(f"{args.output_pdf[:-4]}_set_of_bars_plots_{column2}.tiff", dpi=tiff_dpi, format='tiff')
     elif plot_type == "pieplots":
         fig, ax = plot_piecharts_of_categorial_variables(df.loc[:,columns])
         pp.savefig(fig)
@@ -343,9 +476,11 @@ if __name__ == '__main__':
         #select top 10 columns with maximal number of cases
         columns_top_10 = [x for _, x in sorted(zip(total_number_of_cases, columns_binary), reverse=True)][:10]
         columns_top_10_names = [x.replace(columns_prefix,'') for x in columns_top_10]
+        max_number_of_cases = max(total_number_of_cases) if len(total_number_of_cases) > 0 else 0
         if args.verbose > 1:
             print(f"Top 10 columns with maximal number of cases: {columns_top_10_names}")
         for col in columns_binary:
+            col_number_of_cases = sum(df[col])
             good_outcome_factor_true[col] = tdf_good_response[col].sum()
             good_outcome_factor_false[col] = len(tdf_good_response) - good_outcome_factor_true[col]
             bad_outcome_factor_true[col] = tdf_bad_response[col].sum()
@@ -357,7 +492,8 @@ if __name__ == '__main__':
             if 0 in ftable[0] or 0 in ftable[1]:
                 continue
             oddsratio, pvalue = fisher_exact(ftable)
-            fisher_results[col] = (oddsratio,pvalue)
+            dot_size = col_number_of_cases / max_number_of_cases * 300
+            fisher_results[col] = (oddsratio,pvalue,dot_size)
             if pvalue < p_value_threshold and args.verbose > 1:
                 print(f"Factor {col} oddsratio {oddsratio:.4f} pvalue {pvalue:.4f} [TP TN FP FN]:{ftable}")
                 raw_lables.append(col)
@@ -372,14 +508,15 @@ if __name__ == '__main__':
         genes = [x for x in fisher_results.keys()]
         #remove perfix genes_ from gene names
         genes = [x.replace(columns_prefix,'') for x in genes]
-        ax.scatter(np.log2([x[0] for x in fisher_results.values()]),-np.log10([x[1] for x in fisher_results.values()]))
-        ax.set_xlabel('Log2(Odds ratio)')
-        ax.set_ylabel('-Log10(P-value)')
+        dot_size = [x[2] for x in fisher_results.values()]
+        ax.scatter(np.log2([x[0] for x in fisher_results.values()]),-np.log10([x[1] for x in fisher_results.values()]), s=[x[2] for x in fisher_results.values()], alpha=0.9)
+        ax.set_xlabel('Log2(Odds ratio)',fontsize=font_size)
+        ax.set_ylabel('-Log10(P-value)',fontsize=font_size)
         ax.grid()
         #select pvalue  < 0.05 and plot them in red
-        all_results = pd.DataFrame({'log2(OddsRatio)':np.log2(oddsratio),'-log10(p-value)':-np.log10(pvalue),'name':genes},index=genes)
+        all_results = pd.DataFrame({'log2(OddsRatio)':np.log2(oddsratio),'-log10(p-value)':-np.log10(pvalue),'name':genes,'dot_size':dot_size},index=genes)
         significant = all_results[all_results['-log10(p-value)'] > -np.log10(p_value_threshold)]
-        plt.scatter(significant['log2(OddsRatio)'], significant['-log10(p-value)'], color='red')
+        plt.scatter(significant['log2(OddsRatio)'], significant['-log10(p-value)'], color='red',s=significant['dot_size'], alpha=0.9)
 
         #TODO: implement more general and robust solution for text shifts
         txt_shift_dict = {}
@@ -389,8 +526,8 @@ if __name__ == '__main__':
                 txt_shift_dict[k] = 0
             else:
                 txt_shift_dict[k] += 1
-            ax.annotate("  " + txt, (significant['log2(OddsRatio)'][i], significant['-log10(p-value)'][i]-txt_shift_dict[k]*0.035),
-                        rotation=0 * int(i) % 360, fontsize=8,ha='left')
+            ax.annotate("  " + txt+f" n={int(significant['dot_size'][i]*max_number_of_cases/300)}", (significant['log2(OddsRatio)'][i], significant['-log10(p-value)'][i]-txt_shift_dict[k]*0.0035*font_size),
+                        rotation=10, fontsize=font_size,ha='left')
 
         txt_shift_dict2 = {}
         #plot text labels for most frequent columns 
@@ -404,19 +541,19 @@ if __name__ == '__main__':
                 else:
                     txt_shift_dict2[k] += 1
                 ax.annotate("  " + txt, (
-                all_results['log2(OddsRatio)'][i], all_results['-log10(p-value)'][i] - txt_shift_dict2[k] * 0.035),
-                        rotation=0 * int(i) % 360, fontsize=8, ha='left')
+                all_results['log2(OddsRatio)'][i], all_results['-log10(p-value)'][i] - txt_shift_dict2[k] *0.0035*font_size),
+                        rotation=10, fontsize=font_size, ha='left')
 
         ax.axhline(-np.log10(p_value_threshold), color='r', linestyle='--')
         # plot text near line with p_value_threshold
-        ax.text(0.1, -np.log10(p_value_threshold) + 0.02, f'p-value = {p_value_threshold}', rotation=0, fontsize=12)
+        ax.text(0.05, -np.log10(p_value_threshold) - 0.06, f'p-value = {p_value_threshold}', rotation=0, fontsize=font_size,color='r')
         ax.axhline(-np.log10(p_value_threshold2), color='r', linestyle='-.')
         # plot text near line with p_value_threshold
-        ax.text(0.1, -np.log10(p_value_threshold2) + 0.02, f'p-value = {p_value_threshold2}', rotation=0, fontsize=12)
+        ax.text(0.05, -np.log10(p_value_threshold2) - 0.06, f'p-value = {p_value_threshold2}', rotation=0, fontsize=font_size,color='r')
 
         # and vertical line at log2(oddsratio) = 0
         ax.axvline(0, color='k', linestyle='-', linewidth=1)
-        plt.title(f'{args.title} Exact Fisher test. ')
+        plt.title(f'{args.title} Exact Fisher test. ',fontsize=font_size)
         plt.tight_layout()
         pp.savefig(fig)
         if args.tiff:
@@ -425,7 +562,7 @@ if __name__ == '__main__':
         i = 0
         for col in columns:
             i = i + 1
-            fig, ax = plot_kruskal_wallis_boxplot(df, col, survival_time_col, legend_dict=legend_dict)
+            fig, ax = plot_kruskal_wallis_boxplot(df, col, survival_time_col, legend_dict=legend_dict,fontsize=font_size)
             pp.savefig(fig)
             if args.tiff:
                 fig.savefig(f"{args.output_pdf[:-4]}_kruskal_wallis_test_{col}.tiff", dpi=tiff_dpi, format='tiff')
