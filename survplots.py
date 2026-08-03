@@ -321,8 +321,8 @@ if __name__ == '__main__':
     parser.add_argument("--input_csv", help="Input CSV file", type=str, required=True)
     parser.add_argument("--output_pdf", help="Output file with figures", type=str, required=True)
     parser.add_argument("--plot", help="Type of plot", choices=list_of_plot_types, default="kaplan_meier")
-    parser.add_argument("--correct_pvals", help="Use this flag if mutliple testing correction should be performed on p-values for Fisher Test", default=False, action='store_true')
-    parser.add_argument("--alpha_correction", help="Alpha value to test corrected p-values against, if using --correct_pvals for Fisher Test", type=float, default=0.05)
+    parser.add_argument("--correct_pvals", help="Use this flag if mutliple testing correction should be performed on p-values, currently available for Fisher Test and Kruskal Wallis H Test", default=False, action='store_true')
+    parser.add_argument("--alpha_correction", help="Alpha value to test corrected p-values against, if using --correct_pvals", type=float, default=0.05)
     parser.add_argument("--status_col", help="Column with status (event occur or not) ", type=str, default="status")
     parser.add_argument("--survival_time_col", help="Time until event ", type=str, default="survival_in_days")
     parser.add_argument("--patient_id_col", help="Patients id", type=str, default="patient_id")
@@ -633,45 +633,31 @@ if __name__ == '__main__':
             pvals = []
             for variable, comparisons in all_pairwise_pvalues.items():
                 for comparison, pvalue in comparisons.items():
-                    keys.append(("pairwise", variable, comparison))
+                    keys.append((variable, comparison))
                     pvals.append(pvalue)
-        
-            for variable, pvalue in all_kwht_dft.items():
-                keys.append(("kwht", variable))
-                pvals.append(pvalue)
 
             #multiple testing corection
             reject, pvals_corrected, _, _ = multipletests(pvals=pvals, alpha=args.alpha_correction, method='fdr_bh', is_sorted=False, returnsorted=False)
 
             #return values to dictionaries
             pairwise_pvals_corrected = {}
-            kwht_corrected = {}
 
             for key, pval_corr in zip(keys, pvals_corrected):
+                variable, comparison = key
 
-                if key[0] == "pairwise":
-                    _, variable, comparison = key
+                if variable not in pairwise_pvals_corrected:
+                    pairwise_pvals_corrected[variable] = {}
 
-                    if variable not in pairwise_pvals_corrected:
-                        pairwise_pvals_corrected[variable] = {}
-
-                    pairwise_pvals_corrected[variable][comparison] = pval_corr
-
-                elif key[0] == "kwht":
-                    _, variable = key
-                    kwht_corrected[variable] = pval_corr
+                pairwise_pvals_corrected[variable][comparison] = pval_corr
                     
             if args.verbose > 1:
-                print(f"Corrected Kruskal Wallis H Test:")
-                print(kwht_corrected)
                 print(f"Corrected pairwise p-values:")
                 print(pairwise_pvals_corrected)
-                print(f"Significant? (Will print all pairwise p-values, followed by KWHT values in same order as above)")
+                print(f"Significant? (Will print for all pairwise p-values in same order as above)")
                 print(reject)
             
             #set values to plot (using corrected p values)
             all_pairwise_pvalues = pairwise_pvals_corrected
-            all_kwht_dft = kwht_corrected
         
         else:   
             print(f"**Not** performing multiple testing correction on p-values.") 
