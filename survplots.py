@@ -526,7 +526,7 @@ if __name__ == '__main__':
             if args.verbose >1:
                 new_table = {}
                 for i, pval in enumerate(pvals_corrected):
-                    factor = factor_list[1]
+                    factor = factor_list[i]
                     odds_ratio = fisher_results[factor][0]
                     original_p = fisher_results[factor][1]
                     new_table[factor] = (odds_ratio, original_p, pval)
