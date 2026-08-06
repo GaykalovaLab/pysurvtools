@@ -17,7 +17,7 @@ from statsmodels.stats.multitest import multipletests
 
 import scipy.stats as stats
 
-def kruskal_wallis_test(df:pd.DataFrame, split_column:str, value_column:str):
+def plot_kruskal_wallis_boxplot(df:pd.DataFrame, split_column:str, value_column:str, fontsize:int, ylabel = "", xlabel = "", legend_dict = {}, title = ""):
     values_lists =[]
     split_list = sorted(df[split_column].unique().tolist())
     for v in split_list:
@@ -45,9 +45,47 @@ def kruskal_wallis_test(df:pd.DataFrame, split_column:str, value_column:str):
                 # Handle cases where one group has all identical values
                 pairwise_pvalues[pair_key] = 1.0
 
-    return values_lists, pairwise_pvalues, kwht_dft, split_list
+    if args.verbose >1:
+        print(split_column)
+        print(f"Kruskal-Wallis H test p-value before correction:")
+        print(kwht_dft)
+        print(f"Mann-Whitney U test pairwise p-values before correction:")
+        print(pairwise_pvalues)
 
-def plot_kruskal_wallis_boxplot(values_lists:list, pairwise_pvalues:dict, kwht_dft:float, split_list:list, value_column:str, split_column:str, fontsize:int, ylabel = "", xlabel = "", legend_dict = {}, title = ""):
+    #p-values multiple testing correction (benjamini-hochberg)
+    if args.correct_pvals:
+        if args.verbose >1:
+            print(f"Performing multiple testing correction on p-values.")
+            
+        #get original p-values and keys
+        keys = []
+        pvals = []
+        for comparison, pvalue in pairwise_pvalues.items():
+            keys.append(comparison)
+            pvals.append(pvalue)
+
+        #multiple testing corection
+        reject, pvals_corrected, _, _ = multipletests(pvals=pvals, alpha=args.alpha_correction, method='fdr_bh', is_sorted=False, returnsorted=False)
+
+        #return values to dictionaries
+        pairwise_pvals_corrected = {}
+
+        for comparison, pval_corr in zip(keys, pvals_corrected):
+
+            pairwise_pvals_corrected[comparison] = pval_corr
+                    
+        if args.verbose > 1:
+            print(f"Corrected pairwise p-values:")
+            print(pairwise_pvals_corrected)
+            print(f"Significant? (Will print for all pairwise p-values in same order as above)")
+            print(reject)
+            
+        #set values to plot (using corrected p values)
+        pairwise_pvalues = pairwise_pvals_corrected
+        
+    else:   
+        print(f"**Not** performing multiple testing correction on p-values.")
+
     # Create boxplot
     fig, ax = plt.subplots(figsize=(12, 12), nrows=1, ncols=1)
     bp = plt.boxplot(values_lists)
@@ -606,67 +644,12 @@ if __name__ == '__main__':
         if args.tiff:
             fig.savefig(f"{args.output_pdf[:-4]}_eft.tiff", dpi=tiff_dpi, format='tiff')
     elif plot_type == "kruskal_wallis_test":
-        all_values_lists = {}
-        all_pairwise_pvalues = {}
-        all_kwht_dft = {}
-        all_split_lists = {}
-        for col in columns:
-            values_lists, pairwise_pvalues, kwht_dft, split_list = kruskal_wallis_test(df, col, survival_time_col)
-            all_values_lists[col] = values_lists
-            all_pairwise_pvalues[col] = pairwise_pvalues
-            all_kwht_dft[col] = kwht_dft
-            all_split_lists[col] = split_list
-        
-        if args.verbose >1:
-            print(f"P values before correction:")
-            print(all_kwht_dft)
-            print(f"Pairwise p values before correction:")
-            print(all_pairwise_pvalues)
-
-        #p-values multiple testing correction (benjamini-hochberg)
-        if args.correct_pvals:
-            if args.verbose >1:
-                print(f"Performing multiple testing correction on p-values.")
-            
-            #get original p-values and keys
-            keys = []
-            pvals = []
-            for variable, comparisons in all_pairwise_pvalues.items():
-                for comparison, pvalue in comparisons.items():
-                    keys.append((variable, comparison))
-                    pvals.append(pvalue)
-
-            #multiple testing corection
-            reject, pvals_corrected, _, _ = multipletests(pvals=pvals, alpha=args.alpha_correction, method='fdr_bh', is_sorted=False, returnsorted=False)
-
-            #return values to dictionaries
-            pairwise_pvals_corrected = {}
-
-            for key, pval_corr in zip(keys, pvals_corrected):
-                variable, comparison = key
-
-                if variable not in pairwise_pvals_corrected:
-                    pairwise_pvals_corrected[variable] = {}
-
-                pairwise_pvals_corrected[variable][comparison] = pval_corr
-                    
-            if args.verbose > 1:
-                print(f"Corrected pairwise p-values:")
-                print(pairwise_pvals_corrected)
-                print(f"Significant? (Will print for all pairwise p-values in same order as above)")
-                print(reject)
-            
-            #set values to plot (using corrected p values)
-            all_pairwise_pvalues = pairwise_pvals_corrected
-        
-        else:   
-            print(f"**Not** performing multiple testing correction on p-values.") 
 
         for col in columns:
-            fig, ax = plot_kruskal_wallis_boxplot(values_lists=all_values_lists[col], pairwise_pvalues=all_pairwise_pvalues[col], kwht_dft=all_kwht_dft[col], split_list=all_split_lists[col], value_column=survival_time_col, split_column=col, fontsize=font_size, legend_dict=legend_dict, title=args.title)
+            fig, ax = plot_kruskal_wallis_boxplot(df, col, survival_time_col, fontsize=font_size, legend_dict=legend_dict, title=args.title)
             pp.savefig(fig)
             if args.tiff:
-                fig.savefig(f"{args.output_pdf[:-4]}_kruskal_wallis_test_{col}.tiff", dpi=tiff_dpi, format='tiff')
+                fig.savefig(f"{args.output_pdf[:-4]}_kwht_{col}.tiff", dpi=tiff_dpi, format='tiff')
 
     if show:
         plt.show()
