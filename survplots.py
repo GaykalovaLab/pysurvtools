@@ -603,6 +603,8 @@ if __name__ == '__main__':
         significant = all_results[all_results['-log10(p-value)'] > -np.log10(p_value_threshold)]
         plt.scatter(significant['log2(OddsRatio)'], significant['-log10(p-value)'], color='red',s=significant['dot_size'], alpha=0.9)
 
+        #set gene label font size smaller
+        gene_font = font_size - (font_size / 3)
         #text shifts
         txt_shift_dict = {}
         for i, txt in enumerate(significant.index):
@@ -612,7 +614,9 @@ if __name__ == '__main__':
             else:
                 txt_shift_dict[k] += 1
             ax.annotate("  " + txt+f" n={int(significant['dot_size'][i]*max_number_of_cases/300)}", (significant['log2(OddsRatio)'][i], significant['-log10(p-value)'][i]-txt_shift_dict[k]*0.0035*font_size),
-                        rotation=10, fontsize=font_size,ha='left')
+                        rotation=10, fontsize=gene_font,ha='left')
+            if args.verbose > 1:
+                print(txt + f" n={int(significant['dot_size'][i]*max_number_of_cases/300)}")
 
         txt_shift_dict2 = {}
         #plot text labels for most frequent columns 
@@ -627,17 +631,18 @@ if __name__ == '__main__':
                     txt_shift_dict2[k] += 1
                 ax.annotate("  " + txt, (
                 all_results['log2(OddsRatio)'][i], all_results['-log10(p-value)'][i] - txt_shift_dict2[k] *0.0035*font_size),
-                        rotation=10, fontsize=font_size, ha='left')
+                        rotation=10, fontsize=gene_font, ha='left')
 
         ax.axhline(-np.log10(p_value_threshold), color='r', linestyle='--')
         # plot text near line with p_value_threshold
-        ax.text(0.05, -np.log10(p_value_threshold) - 0.06, f'p-value = {p_value_threshold}', rotation=0, fontsize=font_size,color='r')
+        ax.text(0.05, -np.log10(p_value_threshold) - 0.08, f'p-value = {p_value_threshold}', rotation=0, fontsize=font_size,color='r')
         ax.axhline(-np.log10(p_value_threshold2), color='r', linestyle='-.')
         # plot text near line with p_value_threshold
-        ax.text(0.05, -np.log10(p_value_threshold2) - 0.06, f'p-value = {p_value_threshold2}', rotation=0, fontsize=font_size,color='r')
+        ax.text(0.05, -np.log10(p_value_threshold2) - 0.08, f'p-value = {p_value_threshold2}', rotation=0, fontsize=font_size,color='r')
 
         # and vertical line at log2(oddsratio) = 0
         ax.axvline(0, color='k', linestyle='-', linewidth=1)
+        ax.tick_params(axis='both', which='major', labelsize=gene_font)
         plt.title(f'{args.title} Exact Fisher test. ',fontsize=font_size)
         plt.tight_layout()
         pp.savefig(fig)
