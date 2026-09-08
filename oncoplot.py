@@ -58,10 +58,11 @@ if __name__ == '__main__':
     parser.add_argument("--nosortgenes", help="If set genes will not be sorted ", default=False,action='store_true')
     parser.add_argument("--show", help="If set, plots will be shown", default=False,action='store_true')
     parser.add_argument("--number_of_genes",type=int,default=20)
-    parser.add_argument("--verbose",type=int,default=1)
-    parser.add_argument("--title",type=str,default="")
+    parser.add_argument("--verbose", type=int, default=1)
+    parser.add_argument("--title", type=str, default="")
     parser.add_argument("--tiff", help="If set, plots will be saved in tiff format", default=False, action='store_true')
     parser.add_argument("--keep_patient_id", help="If yes, keep patients_id, use number otherwise", default=False, action='store_true')
+    parser.add_argument("--font_size", help="Set the font size for all plot elements", type=int, default=20)
 
     args = parser.parse_args()
     number_of_genes = args.number_of_genes
@@ -154,6 +155,7 @@ if __name__ == '__main__':
             cmap_index = 0
 
     #create oncoplot
+    plt.rcParams.update({'font.size': args.font_size})
     op = pyoncoprint.OncoPrint(mutation_df)
     mutation_markers = {
         "all types of mutations": dict(
@@ -169,7 +171,7 @@ if __name__ == '__main__':
         sortmethod = 'default'
     print(sortmethod)
     fig,axs=op.oncoprint(markers=mutation_markers,gene_sort_method=sortmethod,annotations=annotations, topplot=True, rightplot=True,legend=True,
-                 title=args.title)
+                 title=args.title,ratio_template="{0:.0%}")
     if args.output_file.endswith('.png'):
         plt.savefig(args.output_file)
     if args.show:

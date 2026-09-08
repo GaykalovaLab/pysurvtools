@@ -17,7 +17,7 @@ from statsmodels.stats.multitest import multipletests
 
 import scipy.stats as stats
 
-def kruskal_wallis_test(df:pd.DataFrame, split_column:str, value_column:str):
+def plot_kruskal_wallis_boxplot(df:pd.DataFrame, split_column:str, value_column:str, fontsize:int, ylabel = "", xlabel = "", legend_dict = {}, title = ""):
     values_lists =[]
     split_list = sorted(df[split_column].unique().tolist())
     for v in split_list:
@@ -45,9 +45,47 @@ def kruskal_wallis_test(df:pd.DataFrame, split_column:str, value_column:str):
                 # Handle cases where one group has all identical values
                 pairwise_pvalues[pair_key] = 1.0
 
-    return values_lists, pairwise_pvalues, kwht_dft, split_list
+    if args.verbose >1:
+        print(split_column)
+        print(f"Kruskal-Wallis H test p-value before correction:")
+        print(kwht_dft)
+        print(f"Mann-Whitney U test pairwise p-values before correction:")
+        print(pairwise_pvalues)
 
-def plot_kruskal_wallis_boxplot(values_lists:list, pairwise_pvalues:dict, kwht_dft:float, split_list:list, value_column:str, split_column:str, fontsize:int, ylabel = "", xlabel = "", legend_dict = {}, title = ""):
+    #p-values multiple testing correction (benjamini-hochberg)
+    if args.correct_pvals:
+        if args.verbose >1:
+            print(f"Performing multiple testing correction on p-values.")
+            
+        #get original p-values and keys
+        keys = []
+        pvals = []
+        for comparison, pvalue in pairwise_pvalues.items():
+            keys.append(comparison)
+            pvals.append(pvalue)
+
+        #multiple testing corection
+        reject, pvals_corrected, _, _ = multipletests(pvals=pvals, alpha=args.alpha_correction, method='fdr_bh', is_sorted=False, returnsorted=False)
+
+        #return values to dictionaries
+        pairwise_pvals_corrected = {}
+
+        for comparison, pval_corr in zip(keys, pvals_corrected):
+
+            pairwise_pvals_corrected[comparison] = pval_corr
+                    
+        if args.verbose > 1:
+            print(f"Corrected pairwise p-values:")
+            print(pairwise_pvals_corrected)
+            print(f"Significant? (Will print for all pairwise p-values in same order as above)")
+            print(reject)
+            
+        #set values to plot (using corrected p values)
+        pairwise_pvalues = pairwise_pvals_corrected
+        
+    else:   
+        print(f"**Not** performing multiple testing correction on p-values.")
+
     # Create boxplot
     fig, ax = plt.subplots(figsize=(12, 12), nrows=1, ncols=1)
     bp = plt.boxplot(values_lists)
@@ -321,8 +359,8 @@ if __name__ == '__main__':
     parser.add_argument("--input_csv", help="Input CSV file", type=str, required=True)
     parser.add_argument("--output_pdf", help="Output file with figures", type=str, required=True)
     parser.add_argument("--plot", help="Type of plot", choices=list_of_plot_types, default="kaplan_meier")
-    parser.add_argument("--correct_pvals", help="Use this flag if mutliple testing correction should be performed on p-values for Fisher Test", default=False, action='store_true')
-    parser.add_argument("--alpha_correction", help="Alpha value to test corrected p-values against, if using --correct_pvals for Fisher Test", type=float, default=0.05)
+    parser.add_argument("--correct_pvals", help="Use this flag if mutliple testing correction should be performed on p-values, currently available for Fisher Test and Kruskal Wallis H Test", default=False, action='store_true')
+    parser.add_argument("--alpha_correction", help="Alpha value to test corrected p-values against, if using --correct_pvals", type=float, default=0.05)
     parser.add_argument("--status_col", help="Column with status (event occur or not) ", type=str, default="status")
     parser.add_argument("--survival_time_col", help="Time until event ", type=str, default="survival_in_days")
     parser.add_argument("--patient_id_col", help="Patients id", type=str, default="patient_id")
@@ -565,6 +603,8 @@ if __name__ == '__main__':
         significant = all_results[all_results['-log10(p-value)'] > -np.log10(p_value_threshold)]
         plt.scatter(significant['log2(OddsRatio)'], significant['-log10(p-value)'], color='red',s=significant['dot_size'], alpha=0.9)
 
+        #set gene label font size smaller
+        gene_font = font_size - (font_size / 3)
         #text shifts
         txt_shift_dict = {}
         for i, txt in enumerate(significant.index):
@@ -574,7 +614,9 @@ if __name__ == '__main__':
             else:
                 txt_shift_dict[k] += 1
             ax.annotate("  " + txt+f" n={int(significant['dot_size'][i]*max_number_of_cases/300)}", (significant['log2(OddsRatio)'][i], significant['-log10(p-value)'][i]-txt_shift_dict[k]*0.0035*font_size),
-                        rotation=10, fontsize=font_size,ha='left')
+                        rotation=10, fontsize=gene_font,ha='left')
+            if args.verbose > 1:
+                print(txt + f" n={int(significant['dot_size'][i]*max_number_of_cases/300)}")
 
         txt_shift_dict2 = {}
         #plot text labels for most frequent columns 
@@ -589,98 +631,30 @@ if __name__ == '__main__':
                     txt_shift_dict2[k] += 1
                 ax.annotate("  " + txt, (
                 all_results['log2(OddsRatio)'][i], all_results['-log10(p-value)'][i] - txt_shift_dict2[k] *0.0035*font_size),
-                        rotation=10, fontsize=font_size, ha='left')
+                        rotation=10, fontsize=gene_font, ha='left')
 
         ax.axhline(-np.log10(p_value_threshold), color='r', linestyle='--')
         # plot text near line with p_value_threshold
-        ax.text(0.05, -np.log10(p_value_threshold) - 0.06, f'p-value = {p_value_threshold}', rotation=0, fontsize=font_size,color='r')
+        ax.text(0.05, -np.log10(p_value_threshold) - 0.08, f'p-value = {p_value_threshold}', rotation=0, fontsize=font_size,color='r')
         ax.axhline(-np.log10(p_value_threshold2), color='r', linestyle='-.')
         # plot text near line with p_value_threshold
-        ax.text(0.05, -np.log10(p_value_threshold2) - 0.06, f'p-value = {p_value_threshold2}', rotation=0, fontsize=font_size,color='r')
+        ax.text(0.05, -np.log10(p_value_threshold2) - 0.08, f'p-value = {p_value_threshold2}', rotation=0, fontsize=font_size,color='r')
 
         # and vertical line at log2(oddsratio) = 0
         ax.axvline(0, color='k', linestyle='-', linewidth=1)
+        ax.tick_params(axis='both', which='major', labelsize=gene_font)
         plt.title(f'{args.title} Exact Fisher test. ',fontsize=font_size)
         plt.tight_layout()
         pp.savefig(fig)
         if args.tiff:
             fig.savefig(f"{args.output_pdf[:-4]}_eft.tiff", dpi=tiff_dpi, format='tiff')
     elif plot_type == "kruskal_wallis_test":
-        all_values_lists = {}
-        all_pairwise_pvalues = {}
-        all_kwht_dft = {}
-        all_split_lists = {}
-        for col in columns:
-            values_lists, pairwise_pvalues, kwht_dft, split_list = kruskal_wallis_test(df, col, survival_time_col)
-            all_values_lists[col] = values_lists
-            all_pairwise_pvalues[col] = pairwise_pvalues
-            all_kwht_dft[col] = kwht_dft
-            all_split_lists[col] = split_list
-        
-        if args.verbose >1:
-            print(f"P values before correction:")
-            print(all_kwht_dft)
-            print(f"Pairwise p values before correction:")
-            print(all_pairwise_pvalues)
-
-        #p-values multiple testing correction (benjamini-hochberg)
-        if args.correct_pvals:
-            if args.verbose >1:
-                print(f"Performing multiple testing correction on p-values.")
-            
-            #get original p-values and keys
-            keys = []
-            pvals = []
-            for variable, comparisons in all_pairwise_pvalues.items():
-                for comparison, pvalue in comparisons.items():
-                    keys.append(("pairwise", variable, comparison))
-                    pvals.append(pvalue)
-        
-            for variable, pvalue in all_kwht_dft.items():
-                keys.append(("kwht", variable))
-                pvals.append(pvalue)
-
-            #multiple testing corection
-            reject, pvals_corrected, _, _ = multipletests(pvals=pvals, alpha=args.alpha_correction, method='fdr_bh', is_sorted=False, returnsorted=False)
-
-            #return values to dictionaries
-            pairwise_pvals_corrected = {}
-            kwht_corrected = {}
-
-            for key, pval_corr in zip(keys, pvals_corrected):
-
-                if key[0] == "pairwise":
-                    _, variable, comparison = key
-
-                    if variable not in pairwise_pvals_corrected:
-                        pairwise_pvals_corrected[variable] = {}
-
-                    pairwise_pvals_corrected[variable][comparison] = pval_corr
-
-                elif key[0] == "kwht":
-                    _, variable = key
-                    kwht_corrected[variable] = pval_corr
-                    
-            if args.verbose > 1:
-                print(f"Corrected Kruskal Wallis H Test:")
-                print(kwht_corrected)
-                print(f"Corrected pairwise p-values:")
-                print(pairwise_pvals_corrected)
-                print(f"Significant? (Will print all pairwise p-values, followed by KWHT values in same order as above)")
-                print(reject)
-            
-            #set values to plot (using corrected p values)
-            all_pairwise_pvalues = pairwise_pvals_corrected
-            all_kwht_dft = kwht_corrected
-        
-        else:   
-            print(f"**Not** performing multiple testing correction on p-values.") 
 
         for col in columns:
-            fig, ax = plot_kruskal_wallis_boxplot(values_lists=all_values_lists[col], pairwise_pvalues=all_pairwise_pvalues[col], kwht_dft=all_kwht_dft[col], split_list=all_split_lists[col], value_column=survival_time_col, split_column=col, fontsize=font_size, legend_dict=legend_dict, title=args.title)
+            fig, ax = plot_kruskal_wallis_boxplot(df, col, survival_time_col, fontsize=font_size, legend_dict=legend_dict, title=args.title)
             pp.savefig(fig)
             if args.tiff:
-                fig.savefig(f"{args.output_pdf[:-4]}_kruskal_wallis_test_{col}.tiff", dpi=tiff_dpi, format='tiff')
+                fig.savefig(f"{args.output_pdf[:-4]}_kwht_{col}.tiff", dpi=tiff_dpi, format='tiff')
 
     if show:
         plt.show()
